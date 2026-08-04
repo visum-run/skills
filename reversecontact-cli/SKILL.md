@@ -107,6 +107,7 @@ File mode `0600` on POSIX. Safe to inspect or delete for cleanup.
 | `missing_domain` | 2 | Enrich company without `--domain` |
 | `missing_input` | 2 | Required flag/positional missing, or search with no filter |
 | `invalid_size` | 2 | Bad range or positive-int flag value |
+| `invalid_value` | 2 | Unrecognized boolean flag token (e.g. `--premium=banane`) |
 | `conflicting_flags` | 2 | Mutually exclusive flags (e.g. `--url` and `--id`, `--wait` without `--live`) |
 | `empty_token` | 2 | `--with-token` got empty stdin |
 | `no_tty` | 2 | Interactive login without a TTY |
