@@ -4,7 +4,7 @@ description: Enrich, fetch, search and find contact emails and phone numbers for
 compatibility: Requires the rc binary (macOS/Linux `curl -fsSL https://app.reversecontact.com/cli/install.sh | sh` or `brew install visum-run/tap/rc`, Windows `powershell -c "irm https://app.reversecontact.com/cli/install.ps1 | iex"`) and network access
 metadata:
   author: reversecontact
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 <!-- Published as reversecontact-cli/ in visum-run/skills by the release workflow (source: apps/cli/skill/). Install: npx skills add visum-run/skills -->
