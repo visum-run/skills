@@ -1,6 +1,6 @@
 ---
 name: reversecontact-cli
-description: Enrich, fetch, search and contact people and companies via the ReverseContact rc CLI. Use when the user wants to enrich from email or name, fetch by LinkedIn URL or id, search people or companies, check profile freshness for free, resolve contact emails, poll async live jobs, or inspect credits. Requires the rc binary and a ReverseContact API key.
+description: Enrich, fetch, search and find contact emails and phone numbers for people and companies via the Reverse Contact rc CLI. Use when the user wants to enrich from email or name, fetch by LinkedIn URL or id, search people or companies, check profile freshness for free, resolve contact emails or phone numbers, poll async live jobs, or inspect credits. Requires the rc binary and a Reverse Contact API key.
 compatibility: Requires the rc binary (macOS/Linux `curl -fsSL https://app.reversecontact.com/cli/install.sh | sh` or `brew install visum-run/tap/rc`, Windows `powershell -c "irm https://app.reversecontact.com/cli/install.ps1 | iex"`) and network access
 metadata:
   author: reversecontact
@@ -103,7 +103,7 @@ File mode `0600` on POSIX. Safe to inspect or delete for cleanup.
 | `timeout` | 4 | Single request timed out |
 | `network_error` | 4 | Cannot reach base URL |
 | `poll_timeout` | 4 | `--wait` / `rc task --wait` budget exhausted before terminal status |
-| `missing_identifying_field` | 2 | Enrich person / contact email missing identifiers |
+| `missing_identifying_field` | 2 | Enrich person / contact email or phone missing identifiers |
 | `missing_domain` | 2 | Enrich company without `--domain` |
 | `missing_input` | 2 | Required flag/positional missing, or search with no filter |
 | `invalid_size` | 2 | Bad range or positive-int flag value |
@@ -129,12 +129,12 @@ On HTTP 429 the client retries up to **3 attempts** with exponential backoff (ba
 | Situation | Prefer | Cost (success) |
 |-----------|--------|----------------|
 | You have a LinkedIn URL or internal id (`prs_…` / `com_…`) | `rc fetch` | **1** credit cached |
-| You only have email / name / domain to resolve | `rc enrich` | **2** credits (or **3** with `--full-profile`) |
+| You only have email / name / domain to resolve | `rc enrich` | **2** credits, full profile included |
 | Want to know if a profile exists / how fresh it is before paying | `rc check` | **0** credits |
 | Discover server-side search filters (avoid doc drift) | `rc search fields people\|companies` | **0** credits |
 | Need a fresh scrape | `rc fetch … --live` | **2** credits live; async |
 
-**Trial plans** cannot call live routes (`--live`, contact email, etc.). The API returns access denied; upgrade required. Cached fetch/enrich/search/check remain available subject to plan limits.
+**Trial plans** cannot call live routes (`--live`). The API returns access denied; upgrade required. Cached fetch/enrich/search/check remain available subject to plan limits.
 
 **Live jobs are async.** Target latency is under 15 seconds, but jobs can take tens of minutes. Default without `--wait` returns a `taskId` (`webhookId`) immediately: preferred for agents. Poll later with `rc task <taskId>`, or use `--wait` only with a conscious `--timeout` (seconds; default 30, which is often too short for slow live jobs).
 
@@ -148,14 +148,15 @@ On HTTP 429 the client retries up to **3 attempts** with exponential backoff (ba
 | `rc auth status` | 0 | none |
 | `rc auth logout` | 0 | none |
 | `rc check person\|company` | **0** | `--url` **or** `--id` |
-| `rc fetch person\|company` | 1 cached / 0 on 404; 2 live | `--url` or `--id` (live: `--url` only) |
-| `rc enrich person` | 2 found, **3** with `--full-profile`, 0 miss | at least one identifying field |
-| `rc enrich company` | 2 found, **3** with `--full-profile`, 0 miss | `--domain` |
-| `rc search people\|companies` | 1 | at least one filter |
+| `rc fetch person\|company` | 1 cached / 0 on 404; 2 live | `--url` or `--id` (exactly one in cached or live mode) |
+| `rc enrich person` | 2 found (full profile), 0 miss | at least one identifying field |
+| `rc enrich company` | 2 found (full profile), 0 miss | `--domain` |
+| `rc search people` | 1 per profile delivered (the count it runs first is free) | at least one filter |
+| `rc search companies` | 1 per page | at least one filter |
 | `rc search fields people\|companies` | **0** | none |
-| `rc contact email` | 4 (async job) | `--url`, or `--full-name`, or name parts (+ optional domain) |
-| `rc contact verify` | 2 (async job) | `--email` |
-| `rc task <taskId>` | 0 | task id from live/contact |
+| `rc contact email` | 3 when an email is found (async job) | `--url`, or `--full-name`, or name parts (+ optional domain) |
+| `rc contact phone` | 20 when a phone number is found (async job) | `--url`, or `--full-name`, or name parts (+ optional domain) |
+| `rc task <taskId>` | 0 | task id from a live job |
 | `rc usage` | 0 | none |
 | `rc version` | 0 | none |
 
@@ -191,8 +192,8 @@ Exactly one of `--url` or `--id`. Free existence / last-update check.
 | Flag | API field / behavior |
 |------|----------------------|
 | `--url` | `url` |
-| `--id` | `id` (not with `--live`) |
-| `--live` | POST `…/live` (async; Trial blocked) |
+| `--id` | `id` (cached or live) |
+| `--live` | POST `…/live` (async; accepts either `--url` or `--id`; Trial blocked) |
 | `--webhook-url` | `webhookUrl` (requires `--live`) |
 | `--wait` | Poll until terminal (requires `--live`; budget = `--timeout`) |
 
@@ -207,7 +208,6 @@ Exactly one of `--url` or `--id` in cached mode. Prefer this over enrich when yo
 | `--last-name` | `lastName` |
 | `--company-domain` | `companyDomain` |
 | `--company-name` | `companyName` |
-| `--full-profile` | `fullProfile: true` (+1 credit when found) |
 | `--fail-on-not-found` | exit 1 on 404 |
 
 Does **not** accept a LinkedIn URL. Use `rc fetch person --url` for URL lookup (1 credit).
@@ -217,7 +217,6 @@ Does **not** accept a LinkedIn URL. Use `rc fetch person --url` for URL lookup (
 | Flag | API field |
 |------|-----------|
 | `--domain` | `domain` (required) |
-| `--full-profile` | `fullProfile: true` (+1 credit when found) |
 | `--fail-on-not-found` | exit 1 on 404 |
 
 ### `rc search people`
@@ -245,7 +244,7 @@ Does **not** accept a LinkedIn URL. Use `rc fetch person --url` for URL lookup (
 | `--city` | `location.city` (comma) |
 | `--area` | `location.area` (comma) |
 | `--max-data-age-date` | `maxDataAgeDate` (ISO date-time) |
-| `--page` | `page` |
+| `--cursor` | `cursor` (previous `metadata.nextCursor`; omit for the first page) |
 | `--limit` | `perPage` (API max 100) |
 
 At least one filter required (pagination alone exits 2). Prefer `rc search fields people` when unsure which filters the server accepts.
@@ -263,16 +262,20 @@ At least one filter required (pagination alone exits 2). Prefer `rc search field
 | `--region` | `location.region` (comma) |
 | `--city` | `location.city` (comma) |
 | `--max-data-age-date` | `maxDataAgeDate` |
-| `--page` | `page` |
+| `--page` | `page` (API max 50) |
 | `--limit` | `perPage` |
 
 ### `rc search fields people|companies`
 
 GET available-fields catalog. Free. Use before inventing filter names.
 
-### `rc contact email` / `rc contact verify`
+### `rc contact email`
 
-Async jobs (return task id; no built-in `--wait`). Poll with `rc task`. Trial plans cannot call these routes.
+The command returns an acknowledgement with `webhookId`; deliver the result through the configured webhook callback.
+
+### `rc contact phone`
+
+Same flags and validation as `rc contact email`, targeting `POST /v2/contact/phone`. Costs 20 credits only when a phone number is found. The API returns HTTP 410 (`endpoint_unavailable`) when phone finding is not enabled for the workspace; fall back to `rc contact email`. Returns an acknowledgement with `webhookId`; the result is a list of `{ value, type }` entries (e.g. `type: "mobile"`), delivered through the webhook callback or `rc task <taskId>`.
 
 ### `rc task <taskId>`
 
@@ -286,7 +289,7 @@ Poll JSON paths: `data.status`, `data.result` (entity when succeeded), `data.err
 
 ## CLI vs MCP
 
-The gateway also exposes an **MCP server** (8 tools: enrich person/company + live variants, search persons/companies, check task, check usage). Product guide: app docs `guides/mcp`.
+The API also exposes an **MCP server** at `https://api.reversecontact.com/mcp`, with tools to enrich and search people and companies, count people, check profiles, find emails and phone numbers, and poll tasks and usage. Guide: https://docs.reversecontact.com/guides/mcp
 
 | Prefer | When |
 |--------|------|

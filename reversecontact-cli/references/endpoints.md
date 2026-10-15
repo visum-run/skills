@@ -1,8 +1,8 @@
 # Endpoint Reference
 
-All requests go through the `rc` CLI to the ReverseContact gateway API (`RC_BASE_URL`, default `https://api.reversecontact.com`).
+All requests go through the `rc` CLI to the Reverse Contact gateway API (`RC_BASE_URL`, default `https://api.reversecontact.com`).
 
-Credit numbers come from shared V2 pricing. `--full-profile` on enrich adds `FULL_PROFILE_EXTRA_CREDITS` (+1) when a match is found.
+Credit numbers come from shared V2 pricing. Enrich always returns the full profile; `--full-profile` is still accepted but ignored.
 
 ---
 
@@ -29,14 +29,14 @@ Exactly one of `--url` or `--id`. Response `data` describes existence and last u
 | Flag | Body / behavior |
 |------|-----------------|
 | `--url` | `url` |
-| `--id` | `id` (cached only; conflicts with `--live`) |
-| `--live` | live route; requires `--url` |
+| `--id` | `id` (cached or live) |
+| `--live` | live route; requires exactly one of `--url` or `--id` |
 | `--webhook-url` | `webhookUrl` (requires `--live`) |
 | `--wait` | poll GET `/v2/webhooks/:id` until terminal (requires `--live`; budget `--timeout`) |
 | `--fields` | projection on entity |
 | `--json` / `--api-key` / `--timeout` / `--quiet` | common |
 
-Exactly one of `--url` or `--id` in cached mode. Without `--wait`, live mode prints/returns the task (`webhookId`) and exits 0. Prefer default (no `--wait`) for agents; re-check with `rc task <id>`.
+Exactly one of `--url` or `--id` is required in both cached and live modes. Without `--wait`, live mode prints/returns the task (`webhookId`) and exits 0. Prefer default (no `--wait`) for agents; re-check with `rc task <id>`.
 
 **Response (cached):** entity at `data.person` / `data.company`, or sometimes as `data` root. 404 → exit 0, free.
 
@@ -49,7 +49,7 @@ Exactly one of `--url` or `--id` in cached mode. Without `--wait`, live mode pri
 ## `rc enrich person`
 
 **API:** `POST /v2/enrich/persons`  
-**Credits:** 2 if found, 3 with `--full-profile` if found, 0 on miss
+**Credits:** 2 if found (full profile included), 0 on miss
 
 | Flag | Body field | Notes |
 |------|------------|-------|
@@ -58,7 +58,6 @@ Exactly one of `--url` or `--id` in cached mode. Without `--wait`, live mode pri
 | `--last-name` | `lastName` | |
 | `--company-domain` | `companyDomain` | e.g. `acme.com` |
 | `--company-name` | `companyName` | |
-| `--full-profile` | `fullProfile` | +1 credit when found |
 | `--fail-on-not-found` | (behavior) | Exit 1 on 404 |
 | `--fields` | (projection) | |
 | `--json` / `--api-key` / `--timeout` / `--quiet` | common | |
@@ -119,7 +118,6 @@ Entity at `data.person`. Not-found: `success: false`, exit 0 (free). Credits onl
 rc enrich person --email jane@acme.com
 rc enrich person --first-name Jane --last-name Doe --company-domain acme.com \
   --fields linkedinUrl,currentPositionTitle
-rc enrich person --email jane@acme.com --full-profile
 rc fetch person --url https://linkedin.com/in/jane
 rc enrich person --email unknown@example.com --fail-on-not-found
 ```
@@ -129,12 +127,11 @@ rc enrich person --email unknown@example.com --fail-on-not-found
 ## `rc enrich company`
 
 **API:** `POST /v2/enrich/companies`  
-**Credits:** 2 if found, 3 with `--full-profile` if found, 0 on miss
+**Credits:** 2 if found (full profile included), 0 on miss
 
 | Flag | Body field | Notes |
 |------|------------|-------|
 | `--domain` | `domain` | Required |
-| `--full-profile` | `fullProfile` | +1 credit when found |
 | `--fail-on-not-found` | (behavior) | Exit 1 on 404 |
 | `--fields` | (projection) | |
 
@@ -142,15 +139,17 @@ Entity at `data.company`. For company LinkedIn URL/id use `rc fetch company` ins
 
 ```bash
 rc enrich company --domain acme.com
-rc enrich company --domain acme.com --full-profile --fields name,industry,employeesCount
+rc enrich company --domain acme.com --fields companyName,industry,employeesCount,description
 ```
 
 ---
 
 ## `rc search people`
 
-**API:** `POST /v2/search/persons`  
-**Credits:** 1
+**API:** `POST /v2/search/people` (search) · `POST /v2/search/people/count` (free total)
+**Credits:** 1 per profile returned; count is 0 (free)
+
+The CLI first POSTs the filters to `/v2/search/people/count` (free, stable total for the same filters), then runs the search. Cursor pagination: pass the previous `metadata.nextCursor` back as `--cursor`; omit it for the first page. `--limit` maps to `perPage` (1-100, API default 25). There is no `page` parameter.
 
 | Flag | Body field | Notes |
 |------|------------|-------|
@@ -175,22 +174,22 @@ rc enrich company --domain acme.com --full-profile --fields name,industry,employ
 | `--city` | `location.city` | comma multi |
 | `--area` | `location.area` | comma multi |
 | `--max-data-age-date` | `maxDataAgeDate` | ISO date-time |
-| `--page` | `page` | default 1 |
-| `--limit` | `perPage` | omit → API default 100, max 100 |
+| `--cursor` | `cursor` | opaque; from previous `metadata.nextCursor`, omit for the first page |
+| `--limit` | `perPage` | omit → API default 25, max 100 |
 | `--fields` | (projection) | per result item |
 
 ### Validation
 
-At least one filter (not pagination alone). Filters AND-combined; multi-value title OR-matched. Invalid range/int → exit 2 (`invalid_size`).
+At least one filter (pagination alone is not a filter). Filters AND-combined; multi-value title OR-matched. Invalid range/int → exit 2 (`invalid_size`).
 
 ### Response
 
-Nested envelope: `data.data` (array), `data.metadata` (pagination). Top-level `quotas` for credits.
+Full profiles (same shape as `rc fetch person`) at `data.data`; page metadata at `data.metadata` (`perPage`, `count`, `nextCursor`). The stable total matching the filters comes from the free count endpoint (`data.count`), not from the search response. Top-level `quotas.creditsConsumed` equals the number of profiles delivered (1 credit per profile).
 
 ```bash
 rc search people --title CTO --company-name Acme
-rc search people --country France,Germany --city Paris --title "Engineering Manager" --page 2 --limit 50
-rc search people --open-to-work --company-industry Software --fields firstName,lastName,linkedinUrl
+rc search people --country France,Germany --city Paris --title "Engineering Manager" --limit 50 --cursor "$NEXT_CURSOR"
+rc search people --open-to-work --company-industry "Software Development" --fields firstName,lastName,currentCompanyName
 ```
 
 **Schema guard:** `rc search fields people` lists server filters (0 credits). CLI covers all public search body fields except internal `issuer`.
@@ -213,9 +212,10 @@ rc search people --open-to-work --company-industry Software --fields firstName,l
 | `--region` | `location.region` | |
 | `--city` | `location.city` | |
 | `--max-data-age-date` | `maxDataAgeDate` | |
-| `--page` / `--limit` | `page` / `perPage` | same as people |
+| `--page` | `page` | default 1, max 50 |
+| `--limit` | `perPage` | default 100, max 100 |
 
-At least one filter required. Response envelope same as people search.
+At least one filter required. Response envelope: results at `data.data`, page metadata at `data.metadata` (`currentPage`, `pageNumber`, `perPage`, `total`). Companies keep `page`/`perPage` pagination and cost 1 credit per call.
 
 **Note on `employeeCountRange` in results:** response uses `start`/`end` (not `min`/`max`). For the 10,001+ bucket, `end` may be less than `start` (LinkedIn sentinel).
 
@@ -228,7 +228,7 @@ rc search companies --name Stripe --country "United States"
 
 ## `rc search fields people` / `rc search fields companies`
 
-**API:** `GET /v2/search/persons/available-fields` · `GET /v2/search/companies/available-fields`  
+**API:** `GET /v2/search/people/available-fields` · `GET /v2/search/companies/available-fields`
 **Credits:** 0
 
 No extra flags beyond common. Use to stay aligned with server schema.
@@ -238,7 +238,7 @@ No extra flags beyond common. Use to stay aligned with server schema.
 ## `rc contact email`
 
 **API:** `POST /v2/contact/email`  
-**Credits:** 4 (async). Trial restricted.
+**Credits:** 3 only when an email is found (async).
 
 | Flag | Body |
 |------|------|
@@ -249,19 +249,25 @@ No extra flags beyond common. Use to stay aligned with server schema.
 | `--company-domain` | `companyDomain` |
 | `--webhook-url` | `webhookUrl` |
 
-Need `--url`, or `--full-name`, or name parts. Returns job ack with `webhookId`; poll via `rc task`.
+Need `--url`, or `--full-name`, or name parts. Returns a job acknowledgement with `webhookId`; deliver the result through the configured webhook callback.
 
 ---
 
-## `rc contact verify`
+## `rc contact phone`
 
-**API:** `POST /v2/contact/email/verify`  
-**Credits:** 2 (async). Trial restricted.
+**API:** `POST /v2/contact/phone`  
+**Credits:** 20 only when a phone number is found (async). Returns HTTP 410 (`endpoint_unavailable`) when phone finding is not enabled for the workspace.
 
 | Flag | Body |
 |------|------|
-| `--email` | `email` (required) |
+| `--url` | `url` |
+| `--full-name` | `fullName` |
+| `--first-name` | `firstName` |
+| `--last-name` | `lastName` |
+| `--company-domain` | `companyDomain` |
 | `--webhook-url` | `webhookUrl` |
+
+Need `--url`, or `--full-name`, or name parts. Returns a job acknowledgement with `webhookId`; the result is an array of `{ value, type }` (e.g. `type: "mobile"`), delivered through the configured webhook callback or `rc task <taskId>`.
 
 ---
 
