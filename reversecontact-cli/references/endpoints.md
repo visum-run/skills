@@ -172,7 +172,6 @@ The CLI first POSTs the filters to `/v2/search/people/count` (free, stable total
 | `--country-code` | `location.countryCode` | comma multi |
 | `--region` | `location.region` | comma multi |
 | `--city` | `location.city` | comma multi |
-| `--area` | `location.area` | comma multi |
 | `--max-data-age-date` | `maxDataAgeDate` | ISO date-time |
 | `--cursor` | `cursor` | opaque; from previous `metadata.nextCursor`, omit for the first page |
 | `--limit` | `perPage` | omit → API default 25, max 100 |
@@ -196,10 +195,59 @@ rc search people --open-to-work --company-industry "Software Development" --fiel
 
 ---
 
-## `rc search companies`
+## `rc search organizations`
+
+**API:** `POST /v2/search/organizations` (search) · `POST /v2/search/organizations/count` (free total)
+**Credits:** 1 per organization returned; count is 0 (free)
+
+Successor of `rc search companies` (as `rc search people` succeeded the person search). The CLI first POSTs the filters to `/v2/search/organizations/count` (free, stable total for the same filters), then runs the search. Cursor pagination: pass the previous `metadata.nextCursor` back as `--cursor`; omit it for the first page. `--limit` maps to `perPage` (1-100, API default 25). There is no `page` parameter.
+
+| Flag | Body field | Notes |
+|------|------------|-------|
+| `--name` | `companyName` | |
+| `--domain` | `companyDomain` | e.g. `acme.com` |
+| `--industry` | `industry` | comma multi, OR match |
+| `--specialities` | `specialities` | comma multi, OR match |
+| `--size` | `employeeCountRange` | `min-max`, `min-` or `-max` → `{min?,max?}` |
+| `--founded-year` | `foundedYear` | `min-max`, `min-` or `-max` |
+| `--followers-count` | `followersCount` | `min-max`, `min-` or `-max` |
+| `--country` | `location.country` | comma multi |
+| `--country-code` | `location.countryCode` | comma multi |
+| `--region` | `location.region` | comma multi |
+| `--city` | `location.city` | comma multi |
+| `--max-data-age-date` | `maxDataAgeDate` | ISO date-time; narrows only, never the only filter |
+| `--cursor` | `cursor` | opaque; from previous `metadata.nextCursor`, omit for the first page |
+| `--limit` | `perPage` | omit → API default 25, max 100 |
+| `--fields` | (projection) | per result item, e.g. `companyName,headquarter.city` |
+
+### Validation
+
+At least one filter besides `--max-data-age-date` (pagination alone is not a filter), else exit 2 (`missing_input`). Filters AND-combined; multi-value industry and specialities OR-matched. Invalid or reversed range, invalid int → exit 2 (`invalid_size`).
+
+### Response
+
+Full organization profiles at `data.data`; page metadata at `data.metadata` (`perPage`, `count`, `nextCursor`, `null` on the last page). The stable total comes from the free count endpoint (`data.count`). Top-level `quotas.creditsConsumed` equals the number of organizations delivered (1 credit per organization).
+
+Row fields: `id`, `companyName`, `linkedinId`, `publicId`, `linkedinUrl`, `employeesCount`, `followersCount`, `employeeCountRange` (`start`/`end`), `websiteUrl`, `tagline`, `description`, `industry`, `phone`, `specialities[]`, `headquarter` (`street1`, `street2`, `postalCode`, `city`, `geographicArea`, `country`), `logoUrl`, `foundedOn.year`, `locations[]`, `backgroundUrl`.
+
+Human output: one line per organization with name, industry, employees, headquarters city and country, website.
+
+```bash
+rc search organizations --industry "Software Development" --size 51-200 --country-code FR
+rc search organizations --specialities "SaaS,AI" --founded-year 2015- --limit 50 --cursor "$NEXT_CURSOR"
+rc search organizations --domain stripe.com --fields companyName,employeesCount,headquarter.city
+```
+
+**Schema guard:** `rc search fields organizations` lists server filters (0 credits). CLI covers all public search body fields except internal `issuer`.
+
+---
+
+## `rc search companies` (deprecated)
 
 **API:** `POST /v2/search/companies`  
-**Credits:** 1
+**Credits:** 1 per page
+
+Deprecated in favour of `rc search organizations`; the endpoint is still served. In human mode the CLI prints a one-line deprecation notice on stderr; `--json` output is untouched (no notice on stdout or stderr). New scripts should use `rc search organizations`.
 
 | Flag | Body field | Notes |
 |------|------------|-------|
@@ -226,12 +274,12 @@ rc search companies --name Stripe --country "United States"
 
 ---
 
-## `rc search fields people` / `rc search fields companies`
+## `rc search fields people` / `rc search fields organizations` / `rc search fields companies`
 
-**API:** `GET /v2/search/people/available-fields` · `GET /v2/search/companies/available-fields`
+**API:** `GET /v2/search/people/available-fields` · `GET /v2/search/organizations/available-fields` · `GET /v2/search/companies/available-fields` (deprecated)
 **Credits:** 0
 
-No extra flags beyond common. Use to stay aligned with server schema.
+No extra flags beyond common. Use to stay aligned with server schema. `companies` keeps returning the catalog of the deprecated `rc search companies`; use `organizations` for `rc search organizations`.
 
 ---
 

@@ -1,10 +1,10 @@
 ---
 name: reversecontact-cli
-description: Enrich, fetch, search and find contact emails and phone numbers for people and companies via the Reverse Contact rc CLI. Use when the user wants to enrich from email or name, fetch by LinkedIn URL or id, search people or companies, check profile freshness for free, resolve contact emails or phone numbers, poll async live jobs, or inspect credits. Requires the rc binary and a Reverse Contact API key.
+description: Enrich, fetch, search and find contact emails and phone numbers for people and companies via the Reverse Contact rc CLI. Use when the user wants to enrich from email or name, fetch by LinkedIn URL or id, search people or organizations (companies), check profile freshness for free, resolve contact emails or phone numbers, poll async live jobs, or inspect credits. Requires the rc binary and a Reverse Contact API key.
 compatibility: Requires the rc binary (macOS/Linux `curl -fsSL https://app.reversecontact.com/cli/install.sh | sh` or `brew install visum-run/tap/rc`, Windows `powershell -c "irm https://app.reversecontact.com/cli/install.ps1 | iex"`) and network access
 metadata:
   author: reversecontact
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 <!-- Published as reversecontact-cli/ in visum-run/skills by the release workflow (source: apps/cli/skill/). Install: npx skills add visum-run/skills -->
@@ -131,7 +131,8 @@ On HTTP 429 the client retries up to **3 attempts** with exponential backoff (ba
 | You have a LinkedIn URL or internal id (`prs_…` / `com_…`) | `rc fetch` | **1** credit cached |
 | You only have email / name / domain to resolve | `rc enrich` | **2** credits, full profile included |
 | Want to know if a profile exists / how fresh it is before paying | `rc check` | **0** credits |
-| Discover server-side search filters (avoid doc drift) | `rc search fields people\|companies` | **0** credits |
+| Discover server-side search filters (avoid doc drift) | `rc search fields people\|organizations` | **0** credits |
+| Find companies matching criteria | `rc search organizations` (not the deprecated `rc search companies`) | **1** per organization returned |
 | Need a fresh scrape | `rc fetch … --live` | **2** credits live; async |
 
 **Trial plans** cannot call live routes (`--live`). The API returns access denied; upgrade required. Cached fetch/enrich/search/check remain available subject to plan limits.
@@ -152,8 +153,9 @@ On HTTP 429 the client retries up to **3 attempts** with exponential backoff (ba
 | `rc enrich person` | 2 found (full profile), 0 miss | at least one identifying field |
 | `rc enrich company` | 2 found (full profile), 0 miss | `--domain` |
 | `rc search people` | 1 per profile delivered (the count it runs first is free) | at least one filter |
-| `rc search companies` | 1 per page | at least one filter |
-| `rc search fields people\|companies` | **0** | none |
+| `rc search organizations` | 1 per organization delivered (the count it runs first is free) | at least one filter besides `--max-data-age-date` |
+| `rc search companies` (deprecated) | 1 per page | at least one filter |
+| `rc search fields people\|organizations\|companies` | **0** | none |
 | `rc contact email` | 3 when an email is found (async job) | `--url`, or `--full-name`, or name parts (+ optional domain) |
 | `rc contact phone` | 20 when a phone number is found (async job) | `--url`, or `--full-name`, or name parts (+ optional domain) |
 | `rc task <taskId>` | 0 | task id from a live job |
@@ -242,14 +244,38 @@ Does **not** accept a LinkedIn URL. Use `rc fetch person --url` for URL lookup (
 | `--country-code` | `location.countryCode` (comma) |
 | `--region` | `location.region` (comma) |
 | `--city` | `location.city` (comma) |
-| `--area` | `location.area` (comma) |
 | `--max-data-age-date` | `maxDataAgeDate` (ISO date-time) |
 | `--cursor` | `cursor` (previous `metadata.nextCursor`; omit for the first page) |
 | `--limit` | `perPage` (API max 100) |
 
 At least one filter required (pagination alone exits 2). Prefer `rc search fields people` when unsure which filters the server accepts.
 
-### `rc search companies`
+### `rc search organizations`
+
+Successor of `rc search companies`: full organization profiles, cursor pagination, a free count first.
+
+| Flag | API field |
+|------|-----------|
+| `--name` | `companyName` |
+| `--domain` | `companyDomain` |
+| `--industry` | `industry` (comma multi, OR) |
+| `--specialities` | `specialities` (comma multi, OR) |
+| `--size` | `employeeCountRange` (`min-max`, `min-` or `-max`) |
+| `--founded-year` | `foundedYear` (`min-max`, `min-` or `-max`) |
+| `--followers-count` | `followersCount` (`min-max`, `min-` or `-max`) |
+| `--country` | `location.country` (comma) |
+| `--country-code` | `location.countryCode` (comma) |
+| `--region` | `location.region` (comma) |
+| `--city` | `location.city` (comma) |
+| `--max-data-age-date` | `maxDataAgeDate` (ISO date-time, never the only filter) |
+| `--cursor` | `cursor` (previous `metadata.nextCursor`; omit for the first page) |
+| `--limit` | `perPage` (1-100, API default 25) |
+
+At least one filter besides `--max-data-age-date` (exit 2 otherwise). Prefer `rc search fields organizations` when unsure which filters the server accepts.
+
+### `rc search companies` (deprecated)
+
+Deprecated in favour of `rc search organizations`; still served. In human mode it prints a one-line deprecation notice on stderr (never with `--json`). Use it only for scripts that depend on its page-based light rows.
 
 | Flag | API field |
 |------|-----------|
@@ -265,9 +291,9 @@ At least one filter required (pagination alone exits 2). Prefer `rc search field
 | `--page` | `page` (API max 50) |
 | `--limit` | `perPage` |
 
-### `rc search fields people|companies`
+### `rc search fields people|organizations|companies`
 
-GET available-fields catalog. Free. Use before inventing filter names.
+GET available-fields catalog. Free. Use before inventing filter names. `companies` returns the catalog of the deprecated `rc search companies`; use `organizations` for `rc search organizations`.
 
 ### `rc contact email`
 
