@@ -4,7 +4,7 @@ description: Enrich, fetch, search and find contact emails and phone numbers for
 compatibility: Requires the rc binary (macOS/Linux `curl -fsSL https://app.reversecontact.com/cli/install.sh | sh` or `brew install visum-run/tap/rc`, Windows `powershell -c "irm https://app.reversecontact.com/cli/install.ps1 | iex"`) and network access
 metadata:
   author: reversecontact
-  version: "0.4.0"
+  version: "0.5.0"
 ---
 
 <!-- Published as reversecontact-cli/ in visum-run/skills by the release workflow (source: apps/cli/skill/). Install: npx skills add visum-run/skills -->
@@ -108,6 +108,7 @@ File mode `0600` on POSIX. Safe to inspect or delete for cleanup.
 | `missing_input` | 2 | Required flag/positional missing, or search with no filter |
 | `invalid_size` | 2 | Bad range or positive-int flag value |
 | `invalid_value` | 2 | Unrecognized boolean flag token (e.g. `--premium=banane`) |
+| `invalid_email_type` | 2 | `rc contact email --type` is not `professional`, `personal` or `any` |
 | `conflicting_flags` | 2 | Mutually exclusive flags (e.g. `--url` and `--id`, `--wait` without `--live`) |
 | `empty_token` | 2 | `--with-token` got empty stdin |
 | `no_tty` | 2 | Interactive login without a TTY |
@@ -135,8 +136,6 @@ On HTTP 429 the client retries up to **3 attempts** with exponential backoff (ba
 | Find companies matching criteria | `rc search organizations` (not the deprecated `rc search companies`) | **1** per organization returned |
 | Need a fresh scrape | `rc fetch … --live` | **2** credits live; async |
 
-**Trial plans** cannot call live routes (`--live`). The API returns access denied; upgrade required. Cached fetch/enrich/search/check remain available subject to plan limits.
-
 **Live jobs are async.** Target latency is under 15 seconds, but jobs can take tens of minutes. Default without `--wait` returns a `taskId` (`webhookId`) immediately: preferred for agents. Poll later with `rc task <taskId>`, or use `--wait` only with a conscious `--timeout` (seconds; default 30, which is often too short for slow live jobs).
 
 ---
@@ -156,7 +155,7 @@ On HTTP 429 the client retries up to **3 attempts** with exponential backoff (ba
 | `rc search organizations` | 1 per organization delivered (the count it runs first is free) | at least one filter besides `--max-data-age-date` |
 | `rc search companies` (deprecated) | 1 per page | at least one filter |
 | `rc search fields people\|organizations\|companies` | **0** | none |
-| `rc contact email` | 3 when an email is found (async job) | `--url`, or `--full-name`, or name parts (+ optional domain) |
+| `rc contact email` | Billed on the emails found, not on `--type`: 3 for a professional email, 5 for a personal one, so `--type any` costs 3, 5 or 8, the 8 only when it finds both (async job, only when found) | `--url`, or `--full-name`, or name parts (+ optional domain); optional `--type` |
 | `rc contact phone` | 20 when a phone number is found (async job) | `--url`, or `--full-name`, or name parts (+ optional domain) |
 | `rc task <taskId>` | 0 | task id from a live job |
 | `rc usage` | 0 | none |
@@ -195,7 +194,7 @@ Exactly one of `--url` or `--id`. Free existence / last-update check.
 |------|----------------------|
 | `--url` | `url` |
 | `--id` | `id` (cached or live) |
-| `--live` | POST `…/live` (async; accepts either `--url` or `--id`; Trial blocked) |
+| `--live` | POST `…/live` (async; accepts either `--url` or `--id`) |
 | `--webhook-url` | `webhookUrl` (requires `--live`) |
 | `--wait` | Poll until terminal (requires `--live`; budget = `--timeout`) |
 
@@ -297,7 +296,7 @@ GET available-fields catalog. Free. Use before inventing filter names. `companie
 
 ### `rc contact email`
 
-The command returns an acknowledgement with `webhookId`; deliver the result through the configured webhook callback.
+Finds professional emails unless `--type` says otherwise: `--type personal` for a personal address (only when the user asks for one), `--type any` when either kind will do. The command returns an acknowledgement with `webhookId`; the result is a list of `{ value, type }` entries (`type: "professional"` or `"personal"`), delivered through the configured webhook callback or `rc task <taskId>`.
 
 ### `rc contact phone`
 

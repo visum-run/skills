@@ -24,7 +24,7 @@ Exactly one of `--url` or `--id`. Response `data` describes existence and last u
 
 **API (cached):** `POST /v2/fetch/persons` · `POST /v2/fetch/companies`  
 **API (live):** `POST /v2/fetch/persons/live` · `POST /v2/fetch/companies/live`  
-**Credits:** cached 1 if found / 0 on 404; live 2 (async). Trial plans cannot use `--live`.
+**Credits:** cached 1 if found / 0 on 404; live 2 (async).
 
 | Flag | Body / behavior |
 |------|-----------------|
@@ -286,7 +286,7 @@ No extra flags beyond common. Use to stay aligned with server schema. `companies
 ## `rc contact email`
 
 **API:** `POST /v2/contact/email`  
-**Credits:** 3 only when an email is found (async).
+**Credits:** only when an email is found (async), billed on the emails found, not on `--type`: 3 for a professional email, 5 for a personal one, so `--type any` costs 3, 5 or 8 (8 only when it finds both). `personal` and `any` debit 5 when the job starts; `any` is then adjusted to what was found.
 
 | Flag | Body |
 |------|------|
@@ -295,9 +295,10 @@ No extra flags beyond common. Use to stay aligned with server schema. `companies
 | `--first-name` | `firstName` |
 | `--last-name` | `lastName` |
 | `--company-domain` | `companyDomain` |
+| `--type` | `emailType`: `professional` (default when omitted), `personal`, or `any` for either |
 | `--webhook-url` | `webhookUrl` |
 
-Need `--url`, or `--full-name`, or name parts. Returns a job acknowledgement with `webhookId`; deliver the result through the configured webhook callback.
+Need `--url`, or `--full-name`, or name parts. Pass `--type personal` only when the user wants a personal address; `any` stops at the first email found and can return both kinds. Returns a job acknowledgement with `webhookId`; the result is an array of `{ value, type }` (`type: "professional"` or `"personal"`), delivered through the configured webhook callback or `rc task <taskId>`.
 
 ---
 

@@ -190,4 +190,4 @@ error_code=$(echo "$poll" | jq -r '.data.errorCode')
 # rc fetch person --url https://linkedin.com/in/jane --live --wait --timeout 300 --json
 ```
 
-Live can finish in under 15s or take tens of minutes. Trial plans cannot call live routes. On poll timeout, exit 4 with `poll_timeout`; re-run `rc task` later. On task failure, exit 1 with `task_errored`.
+Live can finish in under 15s or take tens of minutes. On poll timeout, exit 4 with `poll_timeout`; re-run `rc task` later. On task failure, exit 1 with `task_errored`.
