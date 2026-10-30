@@ -4,7 +4,7 @@ description: Enrich, fetch, search and find contact emails and phone numbers for
 compatibility: Requires the rc binary (macOS/Linux `curl -fsSL https://app.reversecontact.com/cli/install.sh | sh` or `brew install visum-run/tap/rc`, Windows `powershell -c "irm https://app.reversecontact.com/cli/install.ps1 | iex"`) and network access
 metadata:
   author: reversecontact
-  version: "0.5.0"
+  version: "0.6.0"
 ---
 
 <!-- Published as reversecontact-cli/ in visum-run/skills by the release workflow (source: apps/cli/skill/). Install: npx skills add visum-run/skills -->
@@ -97,6 +97,7 @@ File mode `0600` on POSIX. Safe to inspect or delete for cleanup.
 | `invalid_api_key` | 3 | HTTP 401 |
 | `insufficient_credits` | 1 | HTTP 402 or 403 |
 | `rate_limited` | 1 | HTTP 429 after retries |
+| `key_credit_limit_reached` | 1 | The API key reached one of its credit limits (per day, per month or total), HTTP 429 or 403, never retried |
 | `server_error` | 1 | HTTP 5xx |
 | `api_error` | 1 | Other HTTP 4xx from API, or malformed live response |
 | `task_errored` | 1 | Async job finished with status `errored` |
@@ -121,7 +122,7 @@ File mode `0600` on POSIX. Safe to inspect or delete for cleanup.
 
 ### HTTP retries
 
-On HTTP 429 the client retries up to **3 attempts** with exponential backoff (base **1s**: 1s, then 2s). Factor this into agent `--timeout` budgets for high-throughput loops.
+On HTTP 429 the client retries up to **3 attempts** with exponential backoff (base **1s**: 1s, then 2s). Factor this into agent `--timeout` budgets for high-throughput loops. A key credit limit (`key_credit_limit_reached`) is never retried: the daily limit reopens at 00:00 UTC, the monthly one on the 1st, and the total one only when someone raises or resets it.
 
 ---
 
@@ -155,8 +156,8 @@ On HTTP 429 the client retries up to **3 attempts** with exponential backoff (ba
 | `rc search organizations` | 1 per organization delivered (the count it runs first is free) | at least one filter besides `--max-data-age-date` |
 | `rc search companies` (deprecated) | 1 per page | at least one filter |
 | `rc search fields people\|organizations\|companies` | **0** | none |
-| `rc contact email` | Billed on the emails found, not on `--type`: 3 for a professional email, 5 for a personal one, so `--type any` costs 3, 5 or 8, the 8 only when it finds both (async job, only when found) | `--url`, or `--full-name`, or name parts (+ optional domain); optional `--type` |
-| `rc contact phone` | 20 when a phone number is found (async job) | `--url`, or `--full-name`, or name parts (+ optional domain) |
+| `rc contact email` | Billed on the emails found, not on `--type`: 3 for a professional email, 5 for a personal one, so `--type any` costs 3, 5 or 8, the 8 only when it finds both (async job, only when found) | `--url`, or `--id` (`prs_…`), or `--full-name`, or name parts (+ optional domain); optional `--type` |
+| `rc contact phone` | 20 when a phone number is found (async job) | `--url`, or `--id` (`prs_…`), or `--full-name`, or name parts (+ optional domain) |
 | `rc task <taskId>` | 0 | task id from a live job |
 | `rc usage` | 0 | none |
 | `rc version` | 0 | none |
@@ -239,8 +240,10 @@ Does **not** accept a LinkedIn URL. Use `rc fetch person --url` for URL lookup (
 | `--premium` / `--no-premium` | `isPremium` |
 | `--verified` / `--no-verified` | `isVerified` |
 | `--followers-count` | `followersCount` (`min-max`) |
+| `--connections-count` | `connectionsCount` (`min-max`, `min-` or `-max`) |
 | `--country` | `location.country` (comma multi) |
 | `--country-code` | `location.countryCode` (comma) |
+| `--area` | `location.area` (comma; zone ids such as `MR:EMEA`, `MC:DACH`, `IG:EU`) |
 | `--region` | `location.region` (comma) |
 | `--city` | `location.city` (comma) |
 | `--max-data-age-date` | `maxDataAgeDate` (ISO date-time) |
@@ -264,6 +267,7 @@ Successor of `rc search companies`: full organization profiles, cursor paginatio
 | `--followers-count` | `followersCount` (`min-max`, `min-` or `-max`) |
 | `--country` | `location.country` (comma) |
 | `--country-code` | `location.countryCode` (comma) |
+| `--area` | `location.area` (comma; zone ids, headquarters) |
 | `--region` | `location.region` (comma) |
 | `--city` | `location.city` (comma) |
 | `--max-data-age-date` | `maxDataAgeDate` (ISO date-time, never the only filter) |
@@ -296,7 +300,7 @@ GET available-fields catalog. Free. Use before inventing filter names. `companie
 
 ### `rc contact email`
 
-Finds professional emails unless `--type` says otherwise: `--type personal` for a personal address (only when the user asks for one), `--type any` when either kind will do. The command returns an acknowledgement with `webhookId`; the result is a list of `{ value, type }` entries (`type: "professional"` or `"personal"`), delivered through the configured webhook callback or `rc task <taskId>`.
+Takes `--url`, or `--id` with a person id (`prs_…`) from a search, fetch or enrich result, or a name with `--company-domain`; `--url` and `--id` are exclusive. Finds professional emails unless `--type` says otherwise: `--type personal` for a personal address (only when the user asks for one), `--type any` when either kind will do. The command returns an acknowledgement with `webhookId`; the result is a list of `{ value, type }` entries (`type: "professional"` or `"personal"`), delivered through the configured webhook callback or `rc task <taskId>`.
 
 ### `rc contact phone`
 

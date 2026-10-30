@@ -168,8 +168,10 @@ The CLI first POSTs the filters to `/v2/search/people/count` (free, stable total
 | `--premium` / `--no-premium` | `isPremium` | |
 | `--verified` / `--no-verified` | `isVerified` | |
 | `--followers-count` | `followersCount` | `min-max` |
+| `--connections-count` | `connectionsCount` | `min-max`, `min-` or `-max`; one bound is enough (`501-`) |
 | `--country` | `location.country` | comma multi |
 | `--country-code` | `location.countryCode` | comma multi |
+| `--area` | `location.area` | comma multi; zone ids (`MR:EMEA`, `MC:DACH`, `IG:EU`…), added to the countries, listed by `rc search fields people` |
 | `--region` | `location.region` | comma multi |
 | `--city` | `location.city` | comma multi |
 | `--max-data-age-date` | `maxDataAgeDate` | ISO date-time |
@@ -213,6 +215,7 @@ Successor of `rc search companies` (as `rc search people` succeeded the person s
 | `--followers-count` | `followersCount` | `min-max`, `min-` or `-max` |
 | `--country` | `location.country` | comma multi |
 | `--country-code` | `location.countryCode` | comma multi |
+| `--area` | `location.area` | comma multi; headquarters zone ids, added to the countries, listed by `rc search fields organizations` |
 | `--region` | `location.region` | comma multi |
 | `--city` | `location.city` | comma multi |
 | `--max-data-age-date` | `maxDataAgeDate` | ISO date-time; narrows only, never the only filter |
@@ -291,6 +294,7 @@ No extra flags beyond common. Use to stay aligned with server schema. `companies
 | Flag | Body |
 |------|------|
 | `--url` | `url` |
+| `--id` | `id` (person id, `prs_…`) |
 | `--full-name` | `fullName` |
 | `--first-name` | `firstName` |
 | `--last-name` | `lastName` |
@@ -298,7 +302,7 @@ No extra flags beyond common. Use to stay aligned with server schema. `companies
 | `--type` | `emailType`: `professional` (default when omitted), `personal`, or `any` for either |
 | `--webhook-url` | `webhookUrl` |
 
-Need `--url`, or `--full-name`, or name parts. Pass `--type personal` only when the user wants a personal address; `any` stops at the first email found and can return both kinds. Returns a job acknowledgement with `webhookId`; the result is an array of `{ value, type }` (`type: "professional"` or `"personal"`), delivered through the configured webhook callback or `rc task <taskId>`.
+Need `--url`, or `--id`, or `--full-name`, or name parts. `--url` and `--id` together exit 2 (`conflicting_flags`). Pass `--type personal` only when the user wants a personal address; `any` stops at the first email found and can return both kinds. Returns a job acknowledgement with `webhookId`; the result is an array of `{ value, type }` (`type: "professional"` or `"personal"`), delivered through the configured webhook callback or `rc task <taskId>`.
 
 ---
 
@@ -310,13 +314,14 @@ Need `--url`, or `--full-name`, or name parts. Pass `--type personal` only when 
 | Flag | Body |
 |------|------|
 | `--url` | `url` |
+| `--id` | `id` (person id, `prs_…`) |
 | `--full-name` | `fullName` |
 | `--first-name` | `firstName` |
 | `--last-name` | `lastName` |
 | `--company-domain` | `companyDomain` |
 | `--webhook-url` | `webhookUrl` |
 
-Need `--url`, or `--full-name`, or name parts. Returns a job acknowledgement with `webhookId`; the result is an array of `{ value, type }` (e.g. `type: "mobile"`), delivered through the configured webhook callback or `rc task <taskId>`.
+Need `--url`, or `--id`, or `--full-name`, or name parts. `--url` and `--id` together exit 2 (`conflicting_flags`). Returns a job acknowledgement with `webhookId`; the result is an array of `{ value, type }` (e.g. `type: "mobile"`), delivered through the configured webhook callback or `rc task <taskId>`.
 
 ---
 
@@ -367,12 +372,13 @@ Note: `rc fetch … --live --wait` is different: it unwraps `result` and prints 
 **API:** `GET /v2/usage`  
 **Credits:** 0
 
-`data` is null; read `quotas.workspace` (`credits`, `dailyLimit`, `minuteRateLimit`, `hasUnlimitedCredits`).
+`data` is null; read `quotas.workspace` (`credits`, `dailyLimit`, `minuteRateLimit`, `hasUnlimitedCredits`). `quotas.key.creditLimits` holds the credit limits of the API key (`daily`, `monthly`, `total`, each `{ limit, used, left, nextReset }` or null when the key has no such limit).
 
 ```bash
 rc usage --json | jq '.quotas.workspace.credits.left'
 rc usage --json | jq '.quotas.workspace.minuteRateLimit.left'
 rc usage --json | jq '.quotas.workspace.dailyLimit'
+rc usage --json | jq '.quotas.key.creditLimits.daily.left'
 ```
 
 `rc auth status --json` returns the same workspace quotas plus key `source` and masked key.
