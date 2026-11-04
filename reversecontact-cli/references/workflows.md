@@ -6,6 +6,8 @@ Short shell snippets ready to adapt. Prefer JSON mode in pipes (automatic when s
 
 ## 1. Enrich a list of emails
 
+Past a few dozen people, one Bulk job does it in one call, with the results in one file: `rc bulk create --file people.csv --wait -o results.csv`. See [endpoints.md](endpoints.md).
+
 Reads emails from a file, enriches each, writes JSONL. Separates not-found (exit 0, free) from hard errors.
 
 ```bash
@@ -191,3 +193,38 @@ error_code=$(echo "$poll" | jq -r '.data.errorCode')
 ```
 
 Live can finish in under 15s or take tens of minutes. On poll timeout, exit 4 with `poll_timeout`; re-run `rc task` later. On task failure, exit 1 with `task_errored`.
+
+---
+
+## 5. Lists: save, page, export
+
+All read paths are free (0 credits) and never call Engine. Add people, read a bounded page, export the working set as CSV.
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# The List id, from the List page URL in the dashboard
+list_id="$1"
+
+# Add signals: server-side identity resolve + dedup; unresolved -> Pending Intake
+rc lists add "$list_id" --email jane@acme.com
+rc lists add "$list_id" --signals-file signals.json --json \
+  | jq '{inserted: .data.inserted, pending: .data.pendingIntake.inserted}'
+
+# Page through members without loading everything
+cursor=""
+while :; do
+  page=$(rc lists read "$list_id" --kind members --page-size 200 ${cursor:+--cursor "$cursor"} --json)
+  echo "$page" | jq -r '.data.items[] | [.id, .status] | @tsv'
+  cursor=$(echo "$page" | jq -r '.data.nextCursor // empty')
+  [[ -n "$cursor" ]] || break
+done
+
+# Export the List as CSV: members, then Not found rows (Pending Intake), with the values typed in the dashboard
+rc lists export "$list_id" --out "list-$list_id.csv"
+```
+
+Key points:
+- `add` costs identity credits only when a unique identity becomes a member; duplicate replays are free.
+- `export` streams bytes to stdout unless `--out` is given; `--json` requires `--out`.

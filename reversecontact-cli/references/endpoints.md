@@ -382,3 +382,91 @@ rc usage --json | jq '.quotas.key.creditLimits.daily.left'
 ```
 
 `rc auth status --json` returns the same workspace quotas plus key `source` and masked key.
+
+---
+
+## `rc bulk`
+
+Up to 25,000 people in one background job (the Bulk enrich API: `POST /v2/enrich/persons/bulk`, then `/v2/jobs`). Stdout carries the data; the progress bar goes to stderr, and only at a terminal.
+
+| Command | What it does |
+|---------|--------------|
+| `rc bulk create --file <path>` | Starts it. `--file -` reads stdin. The content decides the format: a JSON array, NDJSON, or a CSV whose header names the fields. Flags: `--families profile,contact_email,contact_phone`, `--type` (email kind), `--live`, `--name`, `--webhook-url`, `--idempotency-key`, `--wait`, `-o` |
+| `rc bulk get <id> [--wait]` | Status, progress, credits. `--wait` follows it and outlives a gateway restart |
+| `rc bulk rows <id>` | One page of results, even while it runs. `--cursor`, `--limit` (100 at most) |
+| `rc bulk rows <id> --all [-o file]` | Every result, one JSON object per line, as soon as it is ready |
+| `rc bulk results <id> [-o file]` | The whole file of a settled job, streamed to disk. `--format csv\|ndjson`, or from the file name (`.ndjson`, `.jsonl`). Without `-o`, stdout is the file |
+| `rc bulk list` | Every background job of the workspace. `--status`, `--type`, `--per-page`, `--cursor` |
+| `rc bulk cancel <id>` | Stops one started by a key or an AI assistant; items not started are never charged |
+
+Item fields: `linkedinUrl`, `email`, `firstName`, `lastName`, `companyDomain`, `companyName`, `externalId`. An unknown JSON field stops before anything is sent; an unknown CSV column is named on stderr and left out.
+
+A result line (NDJSON file, `rows`): `row`, `input` (what was sent, `externalId` included), `status`, `message`, `creditsConsumed`, `person` (the `rc enrich person` shape, or null), plus `contactEmail` / `contactPhone` when asked.
+
+A cancelled job still finishes the items it had started, within the hour (a live lookup times out after 60 minutes). Its file is ready at once, with those items as `running`: download it again later for their outcome. `rows --all` waits for them instead, and says so once on stderr.
+
+`--wait` stops after `--max-wait` seconds (default 21600) with `job_wait_timeout`; the job keeps running. A paused job ends the wait with `job_paused`, a failed one with `job_failed`.
+
+A lost answer to `create` is safe to send again with the `--idempotency-key` its error names: it starts and bills nothing twice.
+
+### Examples
+
+```bash
+rc bulk create --file people.csv --families profile,contact_email --wait -o results.csv
+id=$(rc bulk create --file people.ndjson --json | jq -r '.data.job.id')
+rc bulk rows "$id" --all | jq -c 'select(.person != null)'
+rc bulk results "$id" -o results.ndjson
+```
+
+---
+
+## `rc lists` (API/MCP/CLI parity)
+
+These `rc lists` commands call the public `/v2/lists` API with the stored key. Reads and exports cost **0 credits** and never call Engine; only `rc lists add` (identity resolve) can spend, and the server stays the only billing authority. Item and cell contents are untrusted customer data.
+
+### `rc lists read <listId>`
+
+**API:** `GET /v2/lists/:id/members` · **Credits:** 0
+
+| Flag | Query | Notes |
+|------|-------|-------|
+| `--page-size` | `pageSize` | 1–1000 (server default for the route) |
+| `--cursor` | `cursor` | `data.nextCursor` from the previous page |
+| `--kind` | `kind` | `all` (default), `members`, `pending` |
+
+Response `data`: `{ items, memberCount, pendingIntakeCount, nextCursor }`. Pending Intake rows are deduplicated signals that never became members.
+
+### `rc lists add <listId>`
+
+**API:** `POST /v2/lists/:id/members` · **Credits:** identity credits only when a unique resolved identity becomes a member.
+
+| Flag | Body | Notes |
+|------|------|-------|
+| `--email`, `--linkedin-url`, `--url`, `--first-name`, `--last-name`, `--company-domain`, `--company-name`, `--domain` | one signal | Provide signal fields or `--signals-file`, never both (`conflicting_flags`) |
+| `--signals-file <path\|->` | `signals[]` | JSON array, max 1000 per request; `-` reads stdin. A signal may carry `externalId` (your own id, 1–200 characters), echoed in its result and kept on the member |
+| `--source paste\|file` | `source` | Default `paste` |
+| `--live` | `live: true` | Live identity resolution for LinkedIn URL signals |
+
+Response `data`: `{ inserted, skipped, refused, pendingIntake, creditsConsumed, resolved, infrastructureMisses?, stoppedReason?, results }`. `results` has one entry per signal in request order: `index`, `outcome` (`added`, `already_present`, `not_found`, `refused`, `failed`, `not_reached`), `externalId`, `memberId`, `pendingId`, `reason`. One invalid signal refuses the request with `error.details.signalIndex`. Dedup, caps (25 000 members, 25 000 Pending Intake) and resume are server-side; a refused signal is reported, never faked into a member.
+
+```bash
+rc lists add "$list_id" --email jane@acme.com
+rc lists add "$list_id" --signals-file signals.json
+echo '[{"email":"a@acme.com"},{"linkedinUrl":"https://linkedin.com/in/b"}]' | rc lists add "$list_id" --signals-file -
+```
+
+### `rc lists export <listId>`
+
+**API:** `GET /v2/lists/:id/export` · **Credits:** 0
+
+| Flag | Behavior |
+|------|----------|
+| `--out <path>` | Write CSV to a file; without it the CSV streams to stdout (even when stdout is not a TTY) |
+| `--json` | Requires `--out`; prints `{ output, bytes, filename, contentType }` metadata only (`missing_output` otherwise) |
+
+Member rows are never dumped into the JSON envelope.
+
+```bash
+rc lists export "$list_id" > list.csv
+rc lists export "$list_id" --out list.csv --json
+```
