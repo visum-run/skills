@@ -289,7 +289,7 @@ No extra flags beyond common. Use to stay aligned with server schema. `companies
 ## `rc contact email`
 
 **API:** `POST /v2/contact/email`  
-**Credits:** only when an email is found (async), billed on the emails found, not on `--type`: 3 for a professional email, 5 for a personal one, so `--type any` costs 3, 5 or 8 (8 only when it finds both). `personal` and `any` debit 5 when the job starts; `any` is then adjusted to what was found.
+**Credits:** only when an email is found (async), billed on the emails found, not on `--type`: 3 for a professional email, 5 for a personal one, so `--type any` costs 3, 5 or 8 (8 only when it finds both). `personal` and `any` debit 5 when the task starts; `any` is then adjusted to what was found.
 
 | Flag | Body |
 |------|------|
@@ -302,7 +302,7 @@ No extra flags beyond common. Use to stay aligned with server schema. `companies
 | `--type` | `emailType`: `professional` (default when omitted), `personal`, or `any` for either |
 | `--webhook-url` | `webhookUrl` |
 
-Need `--url`, or `--id`, or `--full-name`, or name parts. `--url` and `--id` together exit 2 (`conflicting_flags`). Pass `--type personal` only when the user wants a personal address; `any` stops at the first email found and can return both kinds. Returns a job acknowledgement with `webhookId`; the result is an array of `{ value, type }` (`type: "professional"` or `"personal"`), delivered through the configured webhook callback or `rc task <taskId>`.
+Need `--url`, or `--id`, or `--full-name`, or name parts. `--url` and `--id` together exit 2 (`conflicting_flags`). Pass `--type personal` only when the user wants a personal address; `any` stops at the first email found and can return both kinds. Returns a task acknowledgement with `webhookId`; the result is an array of `{ value, type }` (`type: "professional"` or `"personal"`), delivered through the configured webhook callback or `rc task <taskId>`.
 
 ---
 
@@ -321,22 +321,31 @@ Need `--url`, or `--id`, or `--full-name`, or name parts. `--url` and `--id` tog
 | `--company-domain` | `companyDomain` |
 | `--webhook-url` | `webhookUrl` |
 
-Need `--url`, or `--id`, or `--full-name`, or name parts. `--url` and `--id` together exit 2 (`conflicting_flags`). Returns a job acknowledgement with `webhookId`; the result is an array of `{ value, type }` (e.g. `type: "mobile"`), delivered through the configured webhook callback or `rc task <taskId>`.
+Need `--url`, or `--id`, or `--full-name`, or name parts. `--url` and `--id` together exit 2 (`conflicting_flags`). Returns a task acknowledgement with `webhookId`; the result is an array of `{ value, type }` (e.g. `type: "mobile"`), delivered through the configured webhook callback or `rc task <taskId>`.
 
 ---
 
 ## `rc task <taskId>`
 
-**API:** `GET /v2/webhooks/:taskId`  
+**API:** `GET /v2/webhooks/:taskId`, then on a 404 `GET /v2/tasks/:taskId`  
 **Credits:** 0
+
+One id, two kinds of task. A **lookup** is one async call started by `rc fetch --live` or `rc contact email|phone` (its id is the `webhookId`). A **background task** is a Bulk enrich task, a List import or enrichment, or a Search export (its id is the one `rc bulk list` shows). The printed JSON is the gateway answer with `kind` beside it: `"lookup"` or `"bulk"` (`--fields kind` picks it too). The human output says `Kind: async lookup`, or starts with `Background task (<type>)`.
 
 | Flag | Behavior |
 |------|----------|
-| `--wait` | poll until `succeeded` or `errored` (budget `--timeout`) |
+| `--wait` | follow it until it settles (budget `--timeout`). A lookup is polled until `succeeded` or `errored`; a background task is held with `GET /v2/tasks/:taskId?wait=N` (N at most 20) until `completed`, `cancelled` or `failed`, as `rc bulk get --wait` does |
 
-Missing `taskId` → exit 2 (`missing_input`). Terminal `errored` → exit 1 (`task_errored`). Poll budget exceeded → exit 4 (`poll_timeout`).
+Missing `taskId` → exit 2 (`missing_input`). Not found as a lookup nor as a background task → exit 1 (`api_error`, `API error (HTTP 404).`). A lookup: terminal `errored` → exit 1 (`task_errored`); poll budget exceeded → exit 4 (`poll_timeout`). A background task with `--wait`: `failed` → exit 1 (`task_failed`), `paused` → exit 1 (`task_paused`), budget exceeded → exit 1 (`task_wait_timeout`, it keeps running).
 
-### Poll response shape (`data` = PollWebhookOutput)
+```bash
+# Which kind, then its status
+rc task "$id" --json | jq -r '.kind + " " + .data.status'
+```
+
+A background task reads as in `rc bulk get` (`data.id`, `data.type`, `data.status`, `data.taskName`, `data.progress`, `data.credits`, `data.links`). The rest of this section is the lookup shape.
+
+### Poll response shape of a lookup (`data` = PollWebhookOutput)
 
 The gateway never puts the enrichment payload under `data.data`. Read these paths:
 
@@ -354,7 +363,7 @@ The gateway never puts the enrichment payload under `data.data`. Read these path
 # Status only
 rc task "$task_id" --json | jq -r '.data.status'
 
-# Entity after success (shape depends on the job: person, company, contact, …)
+# Entity after success (shape depends on the lookup: person, company, contact, …)
 rc task "$task_id" --json | jq '.data.result'
 
 # Error detail
@@ -363,7 +372,7 @@ rc task "$task_id" --json | jq -r '.data.errorCode'
 
 With `--fields`, projection is applied to the poll envelope (`data`), e.g. `--fields status,result,errorCode`.
 
-Note: `rc fetch … --live --wait` is different: it unwraps `result` and prints the entity as if it were a cached fetch. `rc task` always returns the poll envelope.
+Note: `rc fetch … --live --wait` is different: it unwraps `result` and prints the entity as if it were a cached fetch. `rc task` always returns the envelope, with `kind`.
 
 ---
 
@@ -387,25 +396,25 @@ rc usage --json | jq '.quotas.key.creditLimits.daily.left'
 
 ## `rc bulk`
 
-Up to 25,000 people in one background job (the Bulk enrich API: `POST /v2/enrich/persons/bulk`, then `/v2/jobs`). Stdout carries the data; the progress bar goes to stderr, and only at a terminal.
+Up to 25,000 people in one background task (the Bulk enrich API: `POST /v2/bulk`, then `/v2/tasks`). Stdout carries the data; the progress bar goes to stderr, and only at a terminal.
 
 | Command | What it does |
 |---------|--------------|
-| `rc bulk create --file <path>` | Starts it. `--file -` reads stdin. The content decides the format: a JSON array, NDJSON, or a CSV whose header names the fields. Flags: `--families profile,contact_email,contact_phone`, `--type` (email kind), `--live`, `--name`, `--webhook-url`, `--idempotency-key`, `--wait`, `-o` |
+| `rc bulk create --file <path>` | Starts it. `--file -` reads stdin. The content decides the format: a JSON array, NDJSON, or a CSV whose header names the fields. Flags: `--families profile,contact_email,contact_phone`, `--type` (email kind), `--live`, `--task-name` (sent as `taskName`, default "Sent via API"), `--webhook-url`, `--idempotency-key`, `--wait`, `-o` |
 | `rc bulk get <id> [--wait]` | Status, progress, credits. `--wait` follows it and outlives a gateway restart |
 | `rc bulk rows <id>` | One page of results, even while it runs. `--cursor`, `--limit` (100 at most) |
 | `rc bulk rows <id> --all [-o file]` | Every result, one JSON object per line, as soon as it is ready |
-| `rc bulk results <id> [-o file]` | The whole file of a settled job, streamed to disk. `--format csv\|ndjson`, or from the file name (`.ndjson`, `.jsonl`). Without `-o`, stdout is the file |
-| `rc bulk list` | Every background job of the workspace. `--status`, `--type`, `--per-page`, `--cursor` |
+| `rc bulk results <id> [-o file]` | The whole file of a settled task, streamed to disk. `--format csv\|ndjson`, or from the file name (`.ndjson`, `.jsonl`). Without `-o`, stdout is the file |
+| `rc bulk list` | Every background task of the workspace. `--status`, `--type`, `--per-page`, `--cursor` |
 | `rc bulk cancel <id>` | Stops one started by a key or an AI assistant; items not started are never charged |
 
 Item fields: `linkedinUrl`, `email`, `firstName`, `lastName`, `companyDomain`, `companyName`, `externalId`. An unknown JSON field stops before anything is sent; an unknown CSV column is named on stderr and left out.
 
 A result line (NDJSON file, `rows`): `row`, `input` (what was sent, `externalId` included), `status`, `message`, `creditsConsumed`, `person` (the `rc enrich person` shape, or null), plus `contactEmail` / `contactPhone` when asked.
 
-A cancelled job still finishes the items it had started, within the hour (a live lookup times out after 60 minutes). Its file is ready at once, with those items as `running`: download it again later for their outcome. `rows --all` waits for them instead, and says so once on stderr.
+A cancelled task still finishes the items it had started, within the hour (a live lookup times out after 60 minutes). Its file is ready at once, with those items as `running`: download it again later for their outcome. `rows --all` waits for them instead, and says so once on stderr.
 
-`--wait` stops after `--max-wait` seconds (default 21600) with `job_wait_timeout`; the job keeps running. A paused job ends the wait with `job_paused`, a failed one with `job_failed`.
+`--wait` stops after `--max-wait` seconds (default 21600) with `task_wait_timeout`; the task keeps running. A paused task ends the wait with `task_paused`, a failed one with `task_failed`.
 
 A lost answer to `create` is safe to send again with the `--idempotency-key` its error names: it starts and bills nothing twice.
 
@@ -413,7 +422,7 @@ A lost answer to `create` is safe to send again with the `--idempotency-key` its
 
 ```bash
 rc bulk create --file people.csv --families profile,contact_email --wait -o results.csv
-id=$(rc bulk create --file people.ndjson --json | jq -r '.data.job.id')
+id=$(rc bulk create --file people.ndjson --task-name "Q4 leads" --json | jq -r '.data.task.id')
 rc bulk rows "$id" --all | jq -c 'select(.person != null)'
 rc bulk results "$id" -o results.ndjson
 ```

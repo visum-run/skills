@@ -1,10 +1,10 @@
 ---
 name: reversecontact-cli
-description: Enrich, fetch, search and find contact emails and phone numbers for people and companies via the Reverse Contact rc CLI, and work with workspace Lists (read, add, export). Use when the user wants to enrich from email or name, fetch by LinkedIn URL or id, search people or organizations (companies), check profile freshness for free, resolve contact emails or phone numbers, poll async live jobs, inspect credits, operate Lists, or run a Bulk enrich job of up to 25,000 people from a file, from the terminal. Requires the rc binary and a Reverse Contact API key.
+description: Enrich, fetch, search and find contact emails and phone numbers for people and companies via the Reverse Contact rc CLI, and work with workspace Lists (read, add, export). Use when the user wants to enrich from email or name, fetch by LinkedIn URL or id, search people or organizations (companies), check profile freshness for free, resolve contact emails or phone numbers, poll async lookups and background tasks, inspect credits, operate Lists, or run a Bulk enrich task of up to 25,000 people from a file, from the terminal. Requires the rc binary and a Reverse Contact API key.
 compatibility: Requires the rc binary (macOS/Linux `curl -fsSL https://app.reversecontact.com/cli/install.sh | sh` or `brew install visum-run/tap/rc`, Windows `powershell -c "irm https://app.reversecontact.com/cli/install.ps1 | iex"`) and network access
 metadata:
   author: reversecontact
-  version: "0.7.0"
+  version: "0.8.0"
 ---
 
 <!-- Published as reversecontact-cli/ in visum-run/skills by the release workflow (source: apps/cli/skill/). Install: npx skills add visum-run/skills -->
@@ -85,7 +85,7 @@ File mode `0600` on POSIX. Safe to inspect or delete for cleanup.
 | 1 | API error (4xx/5xx after client handling, including 402/403 insufficient credits, task failure) |
 | 2 | Usage error (bad flags, missing required input, conflicting flags) |
 | 3 | Authentication error only: missing key or HTTP 401 invalid key |
-| 4 | Network error (request timeout, unreachable host, **or** live-job poll timeout) |
+| 4 | Network error (request timeout, unreachable host, **or** live task poll timeout) |
 
 **Important:** HTTP 402/403 map to exit **1** (`insufficient_credits`), not exit 3. Exit 3 is reserved for missing/invalid API key (401).
 
@@ -100,13 +100,13 @@ File mode `0600` on POSIX. Safe to inspect or delete for cleanup.
 | `key_credit_limit_reached` | 1 | The API key reached one of its credit limits (per day, per month or total), HTTP 429 or 403, never retried |
 | `server_error` | 1 | HTTP 5xx |
 | `api_error` | 1 | Other HTTP 4xx from API, or malformed live response |
-| `task_errored` | 1 | Async job finished with status `errored` |
-| `job_failed` | 1 | `rc bulk ... --wait`: the job failed |
-| `job_paused` | 1 | `rc bulk ... --wait`: the job is paused, nothing moves until it is resumed |
-| `job_wait_timeout` | 1 | `--max-wait` reached; the job keeps running |
+| `task_errored` | 1 | An async lookup finished with status `errored` |
+| `task_failed` | 1 | `rc bulk ... --wait` or `rc task --wait`: the background task failed |
+| `task_paused` | 1 | `rc bulk ... --wait` or `rc task --wait`: the background task is paused, nothing moves until it is resumed |
+| `task_wait_timeout` | 1 | `rc bulk --max-wait`, or `rc task --wait` on a background task past `--timeout`; the task keeps running |
 | `timeout` | 4 | Single request timed out |
 | `network_error` | 4 | Cannot reach base URL |
-| `poll_timeout` | 4 | `--wait` / `rc task --wait` budget exhausted before terminal status |
+| `poll_timeout` | 4 | `--wait` / `rc task --wait` on a lookup: budget exhausted before terminal status |
 | `missing_identifying_field` | 2 | Enrich person / contact email or phone missing identifiers |
 | `missing_domain` | 2 | Enrich company without `--domain` |
 | `missing_input` | 2 | Required flag/positional missing, or search with no filter |
@@ -115,7 +115,7 @@ File mode `0600` on POSIX. Safe to inspect or delete for cleanup.
 | `invalid_signals` | 2 | Signals file is not valid JSON / not an array of signal objects |
 | `too_many_signals` | 2 | More than 1000 signals in one request |
 | `invalid_items` | 2 | `rc bulk create --file` is not a JSON array, NDJSON or a usable CSV, or has an unknown JSON field |
-| `too_many_items` | 2 | More than 25,000 items in one job |
+| `too_many_items` | 2 | More than 25,000 items in one task |
 | `invalid_families` | 2 | `rc bulk create --families` holds an unknown family |
 | `invalid_format` | 2 | `--format` is not `csv` or `ndjson` |
 | `insufficient_permissions` | 1 | HTTP 403 with server code `INSUFFICIENT_PERMISSIONS` (key lacks the `lists` scope) |
@@ -132,7 +132,7 @@ File mode `0600` on POSIX. Safe to inspect or delete for cleanup.
 | `login_timeout` | 3 | Browser login poll timed out |
 | `unexpected_error` | 1 | Non-CliError thrown |
 
-`rc bulk` surfaces the gateway code in lower case (`job_not_found`, `job_results_not_ready`, `job_results_format_unavailable`, `job_not_cancellable`, `job_started_by_a_person`). Lists commands that reach the API surface the gateway domain code verbatim (for example `LIST_MEMBER_LIMIT_REACHED`) instead of collapsing every refusal to `api_error`. Match on `error.code` for caps and permission refusals.
+`rc bulk` surfaces the gateway code in lower case (`task_not_found`, `task_results_not_ready`, `task_results_format_unavailable`, `task_not_cancellable`, `task_started_by_a_person`, `bulk_task_phone_finder_disabled`). Lists commands that reach the API surface the gateway domain code verbatim (for example `LIST_MEMBER_LIMIT_REACHED`) instead of collapsing every refusal to `api_error`. Match on `error.code` for caps and permission refusals.
 
 ### HTTP retries
 
@@ -152,7 +152,7 @@ On HTTP 429 the client retries up to **3 attempts** with exponential backoff (ba
 | Need a fresh scrape | `rc fetch … --live` | **2** credits live; async |
 | Dozens to 25,000 people at once | `rc bulk create --file` | each item priced like its single call; what is not found is given back |
 
-**Live jobs are async.** Target latency is under 15 seconds, but jobs can take tens of minutes. Default without `--wait` returns a `taskId` (`webhookId`) immediately: preferred for agents. Poll later with `rc task <taskId>`, or use `--wait` only with a conscious `--timeout` (seconds; default 30, which is often too short for slow live jobs).
+**Live tasks are async.** Target latency is under 15 seconds, but tasks can take tens of minutes. Default without `--wait` returns a `taskId` (`webhookId`) immediately: preferred for agents. Poll later with `rc task <taskId>`, or use `--wait` only with a conscious `--timeout` (seconds; default 30, which is often too short for slow live tasks).
 
 ---
 
@@ -171,11 +171,11 @@ On HTTP 429 the client retries up to **3 attempts** with exponential backoff (ba
 | `rc search organizations` | 1 per organization delivered (the count it runs first is free) | at least one filter besides `--max-data-age-date` |
 | `rc search companies` (deprecated) | 1 per page | at least one filter |
 | `rc search fields people\|organizations\|companies` | **0** | none |
-| `rc contact email` | Billed on the emails found, not on `--type`: 3 for a professional email, 5 for a personal one, so `--type any` costs 3, 5 or 8, the 8 only when it finds both (async job, only when found) | `--url`, or `--id` (`prs_…`), or `--full-name`, or name parts (+ optional domain); optional `--type` |
-| `rc contact phone` | 20 when a phone number is found (async job) | `--url`, or `--id` (`prs_…`), or `--full-name`, or name parts (+ optional domain) |
-| `rc task <taskId>` | 0 | task id from a live job |
+| `rc contact email` | Billed on the emails found, not on `--type`: 3 for a professional email, 5 for a personal one, so `--type any` costs 3, 5 or 8, the 8 only when it finds both (async task, only when found) | `--url`, or `--id` (`prs_…`), or `--full-name`, or name parts (+ optional domain); optional `--type` |
+| `rc contact phone` | 20 when a phone number is found (async task) | `--url`, or `--id` (`prs_…`), or `--full-name`, or name parts (+ optional domain) |
+| `rc task <taskId>` | 0 | a lookup's `webhookId`, or a background task id |
 | `rc bulk create` | reserved up front, each item priced like its single call; what is not found is given back | `--file` (CSV, NDJSON or JSON, max 25,000) |
-| `rc bulk get\|list\|rows\|results\|cancel` | **0** | job id (`list`: none) |
+| `rc bulk get\|list\|rows\|results\|cancel` | **0** | task id (`list`: none) |
 | `rc lists read <listId>` | **0** | list id |
 | `rc lists add <listId>` | identity credits per new member | signal fields or `--signals-file` (max 1000) |
 | `rc lists export <listId>` | **0** | list id |
@@ -328,11 +328,13 @@ Same flags and validation as `rc contact email`, targeting `POST /v2/contact/pho
 
 ### `rc task <taskId>`
 
+Reads two kinds of task by id: a lookup started by a live call (`rc fetch --live`, `rc contact email|phone`, by its `webhookId`), or a background task (Bulk enrich, List import or enrichment, Search export). It asks `GET /v2/webhooks/:id` first and, on a 404, `GET /v2/tasks/:id`. The JSON carries `kind`: `lookup` or `bulk`; the human output names it too.
+
 | Flag | Behavior |
 |------|----------|
-| `--wait` | Poll until terminal (budget = `--timeout`) |
+| `--wait` | Follow it until it settles (budget = `--timeout`): a lookup is polled, a background task is held as `rc bulk get --wait` does |
 
-Poll JSON paths: `data.status`, `data.result` (entity when succeeded), `data.errorCode`, `data.deliveryStatus`. Missing task id → exit 2 (`missing_input`). See [endpoints.md](references/endpoints.md#rc-task-taskid).
+Lookup JSON paths: `data.status`, `data.result` (entity when succeeded), `data.errorCode`, `data.deliveryStatus`. Background task JSON: the `rc bulk get` shape (`data.status`, `data.progress`, `data.taskName`, ...). Missing task id → exit 2 (`missing_input`); not found as either kind → exit 1 (`api_error`). See [endpoints.md](references/endpoints.md#rc-task-taskid).
 
 ### `rc lists …`
 
@@ -348,14 +350,14 @@ Export bytes are never wrapped in JSON and member rows are never dumped into an 
 
 ### `rc bulk …`
 
-One background job of up to 25,000 people (the Bulk enrich API). Reading, following and downloading are **0 credits**.
+One background task of up to 25,000 people (the Bulk enrich API). Reading, following and downloading are **0 credits**.
 
 | Command | Behavior |
 |---------|----------|
-| `rc bulk create --file <path\|->` | A CSV, NDJSON or JSON array of people; `--families`, `--wait`, `-o` to download the results once it settles. |
-| `rc bulk get <jobId> [--wait]` / `rc bulk list` / `rc bulk cancel <jobId>` | Status and progress, every job of the workspace, stop a job a key or an assistant started. |
-| `rc bulk rows <jobId> [--all] [-o file]` | Results as they finish, one JSON object per line with `--all`; a cancelled job first finishes the items it had started, within the hour. |
-| `rc bulk results <jobId> [-o file] [--format csv\|ndjson]` | The whole file of a settled job, streamed to disk. |
+| `rc bulk create --file <path\|->` | A CSV, NDJSON or JSON array of people; `--families`, `--task-name`, `--wait`, `-o` to download the results once it settles. |
+| `rc bulk get <taskId> [--wait]` / `rc bulk list` / `rc bulk cancel <taskId>` | Status and progress, every background task of the workspace, stop a task a key or an assistant started. |
+| `rc bulk rows <taskId> [--all] [-o file]` | Results as they finish, one JSON object per line with `--all`; a cancelled task first finishes the items it had started, within the hour. |
+| `rc bulk results <taskId> [-o file] [--format csv\|ndjson]` | The whole file of a settled task, streamed to disk. |
 
 Flags, result line fields and examples: [endpoints.md](references/endpoints.md#rc-bulk).
 

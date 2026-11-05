@@ -6,7 +6,7 @@ Short shell snippets ready to adapt. Prefer JSON mode in pipes (automatic when s
 
 ## 1. Enrich a list of emails
 
-Past a few dozen people, one Bulk job does it in one call, with the results in one file: `rc bulk create --file people.csv --wait -o results.csv`. See [endpoints.md](endpoints.md).
+Past a few dozen people, one Bulk task does it in one call, with the results in one file: `rc bulk create --file people.csv --wait -o results.csv`. See [endpoints.md](endpoints.md).
 
 Reads emails from a file, enriches each, writes JSONL. Separates not-found (exit 0, free) from hard errors.
 
@@ -175,7 +175,7 @@ Key points:
 ## 4. Live fetch without blocking (agent-friendly)
 
 ```bash
-# Start live job (returns task id; do not use --wait in tight agent loops)
+# Start a live task (returns its task id; do not use --wait in tight agent loops)
 ack=$(rc fetch person --url https://linkedin.com/in/jane --live --json)
 task_id=$(echo "$ack" | jq -r '.data.webhookId')
 
@@ -221,7 +221,7 @@ while :; do
   [[ -n "$cursor" ]] || break
 done
 
-# Export the List as CSV: members, then Not found rows (Pending Intake), with the values typed in the dashboard
+# Export the List as CSV: members and Not found rows (Pending Intake) in the order they were added, with the values typed in the dashboard
 rc lists export "$list_id" --out "list-$list_id.csv"
 ```
 
