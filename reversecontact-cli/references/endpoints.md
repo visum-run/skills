@@ -400,7 +400,7 @@ Up to 25,000 people in one background task (the Bulk enrich API: `POST /v2/bulk`
 
 | Command | What it does |
 |---------|--------------|
-| `rc bulk create --file <path>` | Starts it. `--file -` reads stdin. The content decides the format: a JSON array, NDJSON, or a CSV whose header names the fields. Flags: `--families profile,contact_email,contact_phone`, `--type` (email kind), `--live`, `--task-name` (sent as `taskName`, default "Sent via API"), `--webhook-url`, `--idempotency-key`, `--wait`, `-o` |
+| `rc bulk create --file <path>` | Starts it. `--file -` reads stdin. The content decides the format: a JSON array, NDJSON, or a CSV whose header names the fields. Flags: `--families profile,contact_email,contact_phone` (or `check` alone: the free database check of each LinkedIn URL), `--type` (email kind), `--live`, `--task-name` (sent as `taskName`, default "Sent via API"), `--webhook-url`, `--idempotency-key`, `--wait`, `-o` |
 | `rc bulk get <id> [--wait]` | Status, progress, credits. `--wait` follows it and outlives a gateway restart |
 | `rc bulk rows <id>` | One page of results, even while it runs. `--cursor`, `--limit` (100 at most) |
 | `rc bulk rows <id> --all [-o file]` | Every result, one JSON object per line, as soon as it is ready |
@@ -410,7 +410,7 @@ Up to 25,000 people in one background task (the Bulk enrich API: `POST /v2/bulk`
 
 Item fields: `linkedinUrl`, `email`, `firstName`, `lastName`, `companyDomain`, `companyName`, `externalId`. An unknown JSON field stops before anything is sent; an unknown CSV column is named on stderr and left out.
 
-A result line (NDJSON file, `rows`): `row`, `input` (what was sent, `externalId` included), `status`, `message`, `creditsConsumed`, `person` (the `rc enrich person` shape, or null), plus `contactEmail` / `contactPhone` when asked.
+A result line (NDJSON file, `rows`): `row`, `input` (what was sent, `externalId` included), `status`, `message`, `creditsConsumed`, `person` (the `rc enrich person` shape, or null), plus `contactEmail` / `contactPhone` when asked. A check task gives `check` instead (`exists`, `lastUpdate`, `experienceCount`, `skillCount`, `schoolCount`, as `rc check person`) with status `found` or `not_found`; it costs nothing, runs on LinkedIn URL items only (the others read `skipped`), refuses `--live`, and is paused at a zero balance like the unit check.
 
 A cancelled task still finishes the items it had started, within the hour (a live lookup times out after 60 minutes). Its file is ready at once, with those items as `running`: download it again later for their outcome. `rows --all` waits for them instead, and says so once on stderr.
 
@@ -422,6 +422,7 @@ A lost answer to `create` is safe to send again with the `--idempotency-key` its
 
 ```bash
 rc bulk create --file people.csv --families profile,contact_email --wait -o results.csv
+rc bulk create --file urls.csv --families check --wait -o freshness.csv
 id=$(rc bulk create --file people.ndjson --task-name "Q4 leads" --json | jq -r '.data.task.id')
 rc bulk rows "$id" --all | jq -c 'select(.person != null)'
 rc bulk results "$id" -o results.ndjson
@@ -470,7 +471,9 @@ echo '[{"email":"a@acme.com"},{"linkedinUrl":"https://linkedin.com/in/b"}]' | rc
 
 | Flag | Behavior |
 |------|----------|
-| `--out <path>` | Write CSV to a file; without it the CSV streams to stdout (even when stdout is not a TTY) |
+| `--format <csv\|ndjson>` | `csv` (default) or `ndjson`: one JSON object per line, the `rc lists read` row plus `person` (persons List) or `company` (companies List, or the Company details of a person) in the enrich shape, `isFullProfile` and `customColumns` |
+| `--fields <a,b,c>` | CSV only: ordered columns (catalog fields, `enrich.<path>`, `user.<column id>`); refused with `ndjson` |
+| `--out <path>` | Write the file to a path; without it the file streams to stdout (even when stdout is not a TTY) |
 | `--json` | Requires `--out`; prints `{ output, bytes, filename, contentType }` metadata only (`missing_output` otherwise) |
 
 Member rows are never dumped into the JSON envelope.
@@ -478,4 +481,5 @@ Member rows are never dumped into the JSON envelope.
 ```bash
 rc lists export "$list_id" > list.csv
 rc lists export "$list_id" --out list.csv --json
+rc lists export "$list_id" --format ndjson | jq -c 'select(.kind == "member") | .person'
 ```
