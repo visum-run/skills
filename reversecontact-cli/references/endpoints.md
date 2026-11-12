@@ -400,7 +400,7 @@ Up to 25,000 people in one background task (the Bulk enrich API: `POST /v2/bulk`
 
 | Command | What it does |
 |---------|--------------|
-| `rc bulk create --file <path>` | Starts it. `--file -` reads stdin. The content decides the format: a JSON array, NDJSON, or a CSV whose header names the fields. Flags: `--families profile,contact_email,contact_phone` (or `check` alone: the free database check of each LinkedIn URL), `--type` (email kind), `--live`, `--task-name` (sent as `taskName`, default "Sent via API"), `--webhook-url`, `--idempotency-key`, `--wait`, `-o` |
+| `rc bulk create --file <path>` | Starts it. `--file -` reads stdin. The content decides the format: a JSON array, NDJSON, or a CSV whose header names the fields. Flags: `--families profile,contact_email,contact_phone` (or `check` alone: the free database check of each LinkedIn URL), `--type` (email kind), `--live`, `--live-if-older-than-days N` (no `--live` needed: a URL item whose saved profile is less than N days old is read from saved data at 1 credit, any other is read live at 2), `--task-name` (sent as `taskName`, default "Sent via API"), `--webhook-url`, `--idempotency-key`, `--wait`, `-o` |
 | `rc bulk get <id> [--wait]` | Status, progress, credits. `--wait` follows it and outlives a gateway restart |
 | `rc bulk rows <id>` | One page of results, even while it runs. `--cursor`, `--limit` (100 at most) |
 | `rc bulk rows <id> --all [-o file]` | Every result, one JSON object per line, as soon as it is ready |
@@ -410,7 +410,7 @@ Up to 25,000 people in one background task (the Bulk enrich API: `POST /v2/bulk`
 
 Item fields: `linkedinUrl`, `email`, `firstName`, `lastName`, `companyDomain`, `companyName`, `externalId`. An unknown JSON field stops before anything is sent; an unknown CSV column is named on stderr and left out.
 
-A result line (NDJSON file, `rows`): `row`, `input` (what was sent, `externalId` included), `status`, `message`, `creditsConsumed`, `person` (the `rc enrich person` shape, or null), plus `contactEmail` / `contactPhone` when asked. A check task gives `check` instead (`exists`, `lastUpdate`, `experienceCount`, `skillCount`, `schoolCount`, as `rc check person`) with status `found` or `not_found`; it costs nothing, runs on LinkedIn URL items only (the others read `skipped`), refuses `--live`, and is paused at a zero balance like the unit check.
+A result line (NDJSON file, `rows`): `row`, `input` (what was sent, `externalId` included), `status`, `message`, `creditsConsumed`, `person` (the `rc enrich person` shape, or null), plus `contactEmail` / `contactPhone` when asked, and `source` (`cache` or `live`) with `--live-if-older-than-days` (the CSV adds an `rc_source` column). A check task gives `check` instead (`exists`, `lastUpdate`, `experienceCount`, `skillCount`, `schoolCount`, as `rc check person`) with status `found` or `not_found`; it costs nothing, runs on LinkedIn URL items only (the others read `skipped`), refuses `--live`, and is paused at a zero balance like the unit check.
 
 A cancelled task still finishes the items it had started, within the hour (a live lookup times out after 60 minutes). Its file is ready at once, with those items as `running`: download it again later for their outcome. `rows --all` waits for them instead, and says so once on stderr.
 
@@ -423,6 +423,7 @@ A lost answer to `create` is safe to send again with the `--idempotency-key` its
 ```bash
 rc bulk create --file people.csv --families profile,contact_email --wait -o results.csv
 rc bulk create --file urls.csv --families check --wait -o freshness.csv
+rc bulk create --file urls.csv --live-if-older-than-days 30 --wait -o refreshed.csv
 id=$(rc bulk create --file people.ndjson --task-name "Q4 leads" --json | jq -r '.data.task.id')
 rc bulk rows "$id" --all | jq -c 'select(.person != null)'
 rc bulk results "$id" -o results.ndjson

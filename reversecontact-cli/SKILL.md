@@ -4,7 +4,7 @@ description: Enrich, fetch, search and find contact emails and phone numbers for
 compatibility: Requires the rc binary (macOS/Linux `curl -fsSL https://app.reversecontact.com/cli/install.sh | sh` or `brew install visum-run/tap/rc`, Windows `powershell -c "irm https://app.reversecontact.com/cli/install.ps1 | iex"`) and network access
 metadata:
   author: reversecontact
-  version: "0.8.1"
+  version: "0.8.2"
 ---
 
 <!-- Published as reversecontact-cli/ in visum-run/skills by the release workflow (source: apps/cli/skill/). Install: npx skills add visum-run/skills -->
@@ -354,7 +354,7 @@ One background task of up to 25,000 people (the Bulk enrich API). Reading, follo
 
 | Command | Behavior |
 |---------|----------|
-| `rc bulk create --file <path\|->` | A CSV, NDJSON or JSON array of people; `--families` (`check` alone for the free database check of each LinkedIn URL), `--task-name`, `--wait`, `-o` to download the results once it settles. |
+| `rc bulk create --file <path\|->` | A CSV, NDJSON or JSON array of people; `--families` (`check` alone for the free database check of each LinkedIn URL), `--live`, or `--live-if-older-than-days N` instead (live only for profiles saved N days ago or more), `--task-name`, `--wait`, `-o` to download the results once it settles. |
 | `rc bulk get <taskId> [--wait]` / `rc bulk list` / `rc bulk cancel <taskId>` | Status and progress, every background task of the workspace, stop a task a key or an assistant started. |
 | `rc bulk rows <taskId> [--all] [-o file]` | Results as they finish, one JSON object per line with `--all`; a cancelled task first finishes the items it had started, within the hour. |
 | `rc bulk results <taskId> [-o file] [--format csv\|ndjson]` | The whole file of a settled task, streamed to disk. |
